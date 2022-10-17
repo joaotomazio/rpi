@@ -1,0 +1,83 @@
+- name: RPi Install Playbook
+  hosts: localhost
+  connection: local
+  vars:
+    rpios_link: https://downloads.raspberrypi.org/raspios_lite_arm64/images/
+  tasks:
+  - name: Install rpi-imager
+    become: yes
+    ansible.builtin.package:
+      name: rpi-imager
+      state: latest
+
+  - ansible.builtin.shell: curl {{rpios_link}} | grep -oP 'raspios_lite_arm64-[0-9]{4}-[0-9]{2}-[0-9]{2}' | tail -n 1
+    register: rpios_version
+
+  - ansible.builtin.set_fact:
+      rpios_link: "{{rpios_link}}{{rpios_version.stdout}}/"
+
+  - ansible.builtin.shell: curl {{rpios_link}} | grep -oP '[0-9]{4}-[0-9]{2}-[0-9]{2}.*?\.xz' | head -n 1
+    register: rpios_file
+
+  - name: Download Raspberry Pi OS
+    ansible.builtin.get_url:
+      url: "{{rpios_link}}{{rpios_file.stdout}}"
+      dest: ./{{rpios_file.stdout}}
+
+  - ansible.builtin.shell: lsblk
+    register: lsblk_output
+
+  - ansible.builtin.debug:
+      msg: "{{lsblk_output.stdout_lines}}"
+
+  - ansible.builtin.pause:
+      prompt: "Micro SD Drive:"
+      echo: yes
+    register: micro_sd_drive
+
+  - name: Burn image on Micro SD
+    become: yes
+    ansible.builtin.shell: rpi-imager --cli {{rpios_file.stdout}} /dev/{{micro_sd_drive.user_input}}
+
+  - name: Mount Micro SD
+    become: yes
+    ansible.builtin.mount:
+      src: "/dev/{{micro_sd_drive.user_input}}p1"
+      path: /mnt/rpios
+      fstype: vfat
+      state: mounted
+
+  - name: Create ssh file
+    become: yes
+    ansible.builtin.file:
+      path: /mnt/rpios/ssh
+      state: touch
+
+  - ansible.builtin.pause:
+      prompt: "RPi user:"
+      echo: yes
+    register: rpi_user
+
+  - ansible.builtin.pause:
+      prompt: "RPi user password:"
+      echo: no
+    register: rpi_password
+
+  - name: Create userconf file
+    become: yes
+    ansible.builtin.lineinfile:
+      path: /mnt/rpios/userconf
+      line: "{{rpi_user.user_input}}:{{rpi_password.user_input | password_hash('sha512')}}"
+      create: yes
+      state: present
+
+  - name: Unount Micro SD
+    become: yes
+    ansible.builtin.mount:
+      path: /mnt/rpios
+      state: absent
+
+  - name: Remove Raspberry Pi OS image
+    ansible.builtin.file:
+      path: ./{{rpios_file.stdout}}
+      state: absent
