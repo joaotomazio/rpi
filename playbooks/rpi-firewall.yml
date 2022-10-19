@@ -1,0 +1,26 @@
+- name: RPi Firewall Playbook
+  hosts: all
+  tasks:
+  - name: Reset Firewalld
+    ansible.builtin.file:
+      path: /etc/firwalld/zones
+      state: absent
+
+  - name: Activate Public Zone
+    become: yes
+    firewalld:
+      zone: public
+      interface: eth0
+      permanent: yes
+      state: enabled
+
+  - name: Remove dhcpv6-client service
+    become: yes
+    firewalld:
+      zone: public
+      service: dhcpv6-client
+      permanent: yes
+      state: disabled
+  
+  - name: Firewalld Reload
+    shell: sudo firewall-cmd --reload
